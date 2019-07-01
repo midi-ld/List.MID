@@ -1,6 +1,9 @@
 # List.MID
 A MIDI-based benchmark for RDF lists
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.3265139.svg)](https://doi.org/10.5281/zenodo.3265139)
+
+
 ## RDF List models
 
 The currently supported RDF list models are:
