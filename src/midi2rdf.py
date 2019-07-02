@@ -224,7 +224,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(prog='midi2rdf', description="MIDI to RDF converter")
     parser.add_argument('filename', nargs=1, type=str, help="Path to the MIDI file to convert")
-    parser.add_argument('--format', '-f', dest='format', nargs='?', choices=['xml', 'n3', 'turtle', 'nt', 'pretty-xml', 'trix', 'trig', 'nquads'], default='turtle', help="RDF serialization format")
+    parser.add_argument('--format', '-f', dest='format', nargs='?', choices=['xml', 'n3', 'turtle', 'nt', 'pretty-xml', 'trix', 'trig', 'nquads', 'json-ld'], default='turtle', help="RDF serialization format")
     parser.add_argument('outfile', nargs='?', type=str, default=None, help="Output RDF file (if omitted defaults to stdout)")
     parser.add_argument( '--gz', '-z', dest='gz', action='store_true', default=False, help="Compress the output of the conversion")
     parser.add_argument('--order', '-o', dest='order', nargs='?', choices=['uri', 'prop_number', 'prop_time', 'seq', 'list', 'sop'], default='uri', help="Track and event ordering strategy")
