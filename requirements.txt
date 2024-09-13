@@ -3,7 +3,6 @@ certifi==2017.4.17
 chardet==3.0.3
 click==6.7
 Flask==1.0.2
-Flask-Cors==3.0.6
 html5lib==0.999999999
 idna==2.5
 isodate==0.5.4
@@ -17,9 +16,9 @@ pygame==1.9.3
 pyparsing==2.2.0
 python-midi==0.2.4
 rdflib==4.2.1
-requests>=2.20.0
+requests==2.20.0
 six==1.10.0
 SPARQLWrapper==1.7.6
 Unidecode==0.4.20
 Werkzeug==0.15.3
-urllib3==1.24.2
+urllib3==1.26.5
