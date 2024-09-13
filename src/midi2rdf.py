@@ -1,40 +1,30 @@
-#!/usr/bin/python
-
-import midi
-import rdflib
-from rdflib import Namespace, ConjunctiveGraph, RDF, RDFS, URIRef, Literal, BNode, Graph
-from rdflib.collection import Collection
-import sys
-from werkzeug.urls import url_fix
+from mido import MidiFile, tick2second
+from rdflib import Namespace, ConjunctiveGraph, RDF, URIRef, Literal, BNode
 import hashlib
-import ast
 import gzip
 from datetime import datetime
 import argparse
-
-#import music21
-#music21.environment.UserSettings()['warnings'] = 0
-
-import mido
-from mido import tick2second
 
 def midi2rdf(filename, ser_format='turtle', order='uri'):
     """
     Returns a text/turtle dump of the input MIDI filename
     """
 
-    # Read the input MIDI file
-    pattern_midi = midi.read_midifile(filename)
+    # Read the input MIDI file using mido
+    midifile = MidiFile(filename)
 
     # Get MD5 to identify the file
     md5_id = hashlib.md5(open(filename, 'rb').read()).hexdigest()
 
+    # Define URIs
     mid_uri = URIRef("http://purl.org/midi-ld/midi#")
     prov_uri = URIRef("http://www.w3.org/ns/prov#")
     mid_note_uri = URIRef("http://purl.org/midi-ld/notes/")
     mid_prog_uri = URIRef("http://purl.org/midi-ld/programs/")
-    m_uri = URIRef(url_fix("http://purl.org/midi-ld/piece/"))
+    m_uri = URIRef(f"http://purl.org/midi-ld/piece/{md5_id}")
     sequence_uri = URIRef("http://www.ontologydesignpatterns.org/cp/owl/sequence.owl#")
+
+    # Define namespaces
     mid = Namespace(mid_uri)
     prov = Namespace(prov_uri)
     mid_note = Namespace(mid_note_uri)
@@ -42,21 +32,18 @@ def midi2rdf(filename, ser_format='turtle', order='uri'):
     m = Namespace(m_uri)
     sequence = Namespace(sequence_uri)
 
-    # Create the graph
+    # Create RDF graph
     g = ConjunctiveGraph(identifier=m_uri)
-
-    # piece = mid[filename.split('.')[0]]
     piece = m[md5_id]
     g.add((piece, RDF.type, mid.Piece))
-    g.add((piece, mid.resolution, Literal(pattern_midi.resolution)))
-    g.add((piece, mid['format'], Literal(pattern_midi.format)))
+    g.add((piece, mid.resolution, Literal(midifile.ticks_per_beat)))
+    g.add((piece, mid['format'], Literal(midifile.type)))
 
-    # PROV info
-    # g.add((piece, prov.wasDerivedFrom, Literal(filename)))
+    # PROV information
     agent = URIRef("https://github.com/midi-ld/midi2rdf")
     entity_d = piece
-    entity_o = URIRef("http://purl.org/midi-ld/file/{}".format(md5_id))
-    activity = URIRef(piece + "-activity")
+    entity_o = URIRef(f"http://purl.org/midi-ld/file/{md5_id}")
+    activity = URIRef(f"{piece}-activity")
 
     g.add((agent, RDF.type, prov.Agent))
     g.add((entity_d, RDF.type, prov.Entity))
@@ -71,162 +58,95 @@ def midi2rdf(filename, ser_format='turtle', order='uri'):
     g.add((activity, prov.startedAtTime, Literal(datetime.now())))
     g.add((activity, prov.used, entity_o))
 
-    # Since we won't mess with RDF statement order, we'll have absolute ticks
-    # pattern_midi.make_ticks_abs()
-
-    # We'll append the lyrics in this label
-    lyrics_label = ""
-
-    # Attach key to the piece
-    #m21stream = music21.converter.parse(filename)
-    #key = m21stream.analyze('key')
-    #g.add((piece, mid.key, Literal(key)))
-
-    # Begin processing of tracks and events
-
-    # We'll use mido for the case of timestampting -- unsupoprted in python-midi
+    # Initialize tempo and time signature
     tempo = 500000
-    if order in ['prop_time']:
-        midifile = mido.MidiFile(filename)
-        for i,tr in enumerate(midifile.tracks):
-            track = URIRef(piece + '/track' + str(i).zfill(2))
-            g.add((piece, mid.hasTrack, track))
-            g.add((track, RDF.type, mid.Track))
-            abs_time = .0
-            for j,msg in enumerate(tr):
-                event = URIRef(piece + '/track' + str(i).zfill(2) + '/event'+ str(j).zfill(4))
-                if msg.type == 'set_tempo':
-                    tempo = msg.tempo
-                g.add((track, mid.hasEvent, event))
-                g.add((event, RDF.type, mid[msg.type]))
-                rel_time = tick2second(msg.time, midifile.ticks_per_beat, tempo)
-                abs_time += rel_time
-                g.add((event, mid.relativeTime, Literal(rel_time)))
-                g.add((event, mid.absoluteTime, Literal(abs_time)))
-    else:
-        # For the rest -- use python-midi
-        tracks = []
-        for n_track in range(len(pattern_midi)):
-            track = URIRef(piece + '/track' + str(n_track).zfill(2)) #So we can order by URI later -- UGLY PATCH
-            tracks.append(track)
-            g.add((track, RDF.type, mid.Track))
-            if order in ['uri', 'prop_number', 'prop_time', 'sop']:
-                g.add((piece, mid.hasTrack, track))
-            elif order in ['list']:
-                g.add((piece, RDF.type, RDF.List))
-            elif order in ['seq']:
-                g.add((piece, RDF.type, RDF.Seq))
-            else:
-                print("ERROR: {} is an unsupported order strategy".format(order))
-            events = []
-            absoluteTick = 0
-            for n_event in range(len(pattern_midi[n_track])):
-                event_midi = pattern_midi[n_track][n_event]
-                event = URIRef(piece + '/track' + str(n_track).zfill(2) + '/event'+ str(n_event).zfill(4))
-                events.append(event)
-                g.add((event, RDF.type, mid[(type(event_midi).__name__)]))
-                if order in ['uri', 'prop_number', 'prop_time', 'sop']:
-                    g.add((track, mid.hasEvent, event))
-                elif order in ['list']:
-                    g.add((track, RDF.type, RDF.List))
-                elif order in ['seq']:
-                    g.add((track, RDF.type, RDF.Seq))
-                else:
-                    print("ERROR: {} is an unsupported order strategy".format(order))
-                absoluteTick += int(event_midi.tick)
-                # Save the 'tick' slot (shared among all events)
-                g.add((event, mid.tick, Literal(event_midi.tick)))
-                if order in ['prop_number']:
-                    g.add((event, mid.absoluteTick, Literal(absoluteTick)))
-                # Save the 'channel' slot
-                if hasattr(event_midi, 'channel'):
-                    g.add((event, mid.channel, Literal(event_midi.channel)))
-                # Save any other slots the event may have
-                for slot in event_midi.__slots__:
-                    # Prcoess ASCII conversion of text events
-                    if type(event_midi).__name__ in ['TrackNameEvent', 'TextMetaEvent', 'LyricsEvent', 'CopyrightMetaEvent', 'MarkerEvent'] and slot == 'data':
-                        text_data_literal = getattr(event_midi, slot)
-                        text_value = unicode(''.join(chr(i) for i in text_data_literal), errors='replace')
-                        # print text_value
-                        # text_value = ''.join(chr(i) for i in ast.literal_eval(text_data_literal))
-                        g.add((event, RDFS.label, Literal(text_value)))
-                        if type(event_midi).__name__ == 'LyricsEvent':
-                			lyrics_label += text_value
-                    elif type(event_midi).__name__ in ['NoteOnEvent', 'NoteOffEvent'] and slot == 'pitch':
-                        pitch = str(getattr(event_midi, slot))
-                        #c = music21.pitch.Pitch()
-                        #c.midi = int(pitch)
-                        #scale_degree = key.getScaleDegreeFromPitch(c.name)
-                        g.add((event, mid['note'], mid_note[pitch]))
-                        #g.add((event, mid['scaleDegree'], Literal(scale_degree)))
-                    elif type(event_midi).__name__ in ['ProgramChangeEvent'] and slot == 'value':
-                        program = str(getattr(event_midi, slot))
-                        g.add((event, mid['program'], mid_prog[program]))
-                    else:
-                        g.add((event, mid[slot], Literal(getattr(event_midi, slot))))
+    bpm = 120
+    time_signature_set = False
+    numerator = 4
+    denominator = 4
 
-            if order in ['list']:
-                # Add events to an rdf:List to keep their order
-                # Watch the new term mid.hasEvents -- in plural
-                event_list = BNode()
-                c = Collection(g, event_list, events)
-                g.add((track, mid.hasEvents, event_list))
-            elif order in ['seq']:
-                # Add events to an rdf:Seq to keep their ordering
-                event_list = BNode()
-                for i in range(1, len(events)+1):
-                    g.add((event_list, URIRef(str(RDF) + '_{}'.format(i)), events[i-1]))
-                g.add((track, mid.hasEvents, event_list))
-            elif order in ['sop']:
-                # Link events with the sequence ontology design pattern
-                for i in range(len(events)):
-                    if i > 0:
-                        g.add((events[i], sequence['follows'], events[i-1]))
-                    if i < len(events)-1:
-                        g.add((events[i], sequence['precedes'], events[i+1]))
-        if order in ['list']:
-            # Add tracks to an rdf:List to keep their order
-            # Watch the new term mid.hasTracks -- in plural
-            track_list = BNode()
-            c = Collection(g, track_list, tracks)
-            g.add((piece, mid.hasTracks, track_list))
-        elif order in ['seq']:
-            # Add tracks to an rdf:Seq to keep their order
-            track_list = BNode()
-            for i in range(1, len(tracks)+1):
-                g.add((track_list, URIRef(str(RDF) + '_{}'.format(i)), tracks[i-1]))
-            g.add((piece, mid.hasTracks, track_list))
-        elif order in ['sop']:
-            for i in range(len(tracks)):
-                if i > 0:
-                    g.add((tracks[i], sequence['follows'], tracks[i-1]))
-                if i < len(tracks)-1:
-                    g.add((tracks[i], sequence['precedes'], tracks[i+1]))
+    # Track tempo and time signature changes
+    tempos = [(0, tempo)]  # List of (absolute_time, tempo) tuples
+    time_signatures = [(0, numerator, denominator)]
 
-    # Add the global lyrics link, if lyrics not empty
-    if lyrics_label:
-    	g.add((piece, mid['lyrics'], Literal(lyrics_label)))
+    for i, track in enumerate(midifile.tracks):
+        track_uri = URIRef(f"{piece}/track{str(i).zfill(2)}")
+        g.add((piece, mid.hasTrack, track_uri))
+        g.add((track_uri, RDF.type, mid.Track))
+        
+        abs_time = 0.0
+        previous_tick = 0  # Initialize previous_tick for delta time calculation
 
+        for j, msg in enumerate(track):
+            event_uri = URIRef(f"{piece}/track{str(i).zfill(2)}/event{str(j).zfill(4)}")
+            g.add((track_uri, mid.hasEvent, event_uri))
+            g.add((event_uri, RDF.type, mid[msg.type]))
+
+            # Handle tempo changes
+            if msg.type == 'set_tempo':
+                tempo = msg.tempo
+                bpm = 60000000 / tempo
+                g.add((event_uri, mid.tempo, Literal(tempo)))
+                g.add((event_uri, mid.bpm, Literal(bpm)))
+                tempos.append((abs_time, tempo))
+
+            # Handle time signature
+            if msg.type == 'time_signature':
+                numerator = msg.numerator
+                denominator = msg.denominator
+                time_signature_set = True
+                g.add((event_uri, mid.numerator, Literal(numerator)))
+                g.add((event_uri, mid.denominator, Literal(denominator)))
+                time_signatures.append((abs_time, numerator, denominator))
+
+            # Calculate delta time
+            rel_time = tick2second(msg.time, midifile.ticks_per_beat, tempo)
+            delta_ticks = int(rel_time * midifile.ticks_per_beat) - previous_tick
+            previous_tick = int(rel_time * midifile.ticks_per_beat)
+            abs_time += rel_time
+            
+            # Add delta time and absolute time to RDF graph
+            g.add((event_uri, mid.relativeTime, Literal(rel_time)))
+            g.add((event_uri, mid.deltaTime, Literal(delta_ticks)))  # Add delta time
+            g.add((event_uri, mid.absoluteTime, Literal(abs_time)))
+
+            # Handle specific MIDI message types (like note events)
+            if msg.type == 'note_on':
+                note_uri = URIRef(f"http://purl.org/midi-ld/notes/{msg.note}")
+                g.add((event_uri, mid['note'], note_uri))
+                g.add((event_uri, mid['velocity'], Literal(msg.velocity)))
+
+            elif msg.type == 'note_off':
+                note_uri = URIRef(f"http://purl.org/midi-ld/notes/{msg.note}")
+                g.add((event_uri, mid['note'], note_uri))
+
+    # Add time signature to the piece if it was found
+    if time_signature_set:
+        time_signature_bnode = BNode()
+        g.add((piece, mid.time_signature, time_signature_bnode))
+        g.add((time_signature_bnode, mid.numerator, Literal(numerator)))
+        g.add((time_signature_bnode, mid.denominator, Literal(denominator)))
+        
+    # Bind prefixes
     g.bind('midi', mid)
     g.bind('midi-note', mid_note)
     g.bind('midi-prog', mid_prog)
     g.bind('prov', prov)
     g.bind('sequence', sequence)
 
-    # Finished -- record PROV end times
+    # Finish PROV timestamps
     end_time = Literal(datetime.now())
-    g.add((entity_d, prov.generatedAtTime, end_time) )
-    g.add((activity, prov.endedAtTime, end_time) )
+    g.add((entity_d, prov.generatedAtTime, end_time))
+    g.add((activity, prov.endedAtTime, end_time))
 
     return g.serialize(format=ser_format)
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(prog='midi2rdf', description="MIDI to RDF converter")
     parser.add_argument('filename', nargs=1, type=str, help="Path to the MIDI file to convert")
     parser.add_argument('--format', '-f', dest='format', nargs='?', choices=['xml', 'n3', 'turtle', 'nt', 'pretty-xml', 'trix', 'trig', 'nquads', 'json-ld'], default='turtle', help="RDF serialization format")
     parser.add_argument('outfile', nargs='?', type=str, default=None, help="Output RDF file (if omitted defaults to stdout)")
-    parser.add_argument( '--gz', '-z', dest='gz', action='store_true', default=False, help="Compress the output of the conversion")
+    parser.add_argument('--gz', '-z', dest='gz', action='store_true', default=False, help="Compress the output of the conversion")
     parser.add_argument('--order', '-o', dest='order', nargs='?', choices=['uri', 'prop_number', 'prop_time', 'seq', 'list', 'sop'], default='uri', help="Track and event ordering strategy")
     parser.add_argument('--version', '-v', dest='version', action='version', version='0.2')
     args = parser.parse_args()
