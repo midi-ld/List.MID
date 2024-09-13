@@ -21,4 +21,4 @@ six==1.10.0
 SPARQLWrapper==1.7.6
 Unidecode==0.4.20
 Werkzeug==3.0.3
-urllib3==1.26.5
+urllib3==1.26.19
