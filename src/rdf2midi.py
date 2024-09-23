@@ -19,7 +19,7 @@ def rdf2midi(input_filename, output_filename):
 
     # Read the input RDF file
     g = Graph()
-    g.parse(input_filename, format="turtle")
+    g.parse(input_filename, format="xml")
 
     # Initialize the MIDI file (resolution and format)
     p_resolution = 96
